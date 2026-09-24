@@ -142,19 +142,22 @@ class WhisperDataCollator:
         }
 
 
-def process_predictions(logits: np.ndarray):
+DEFAULT_THRESHOLD = 0.5
+
+
+def process_predictions(logits: np.ndarray, threshold: float = DEFAULT_THRESHOLD):
     probs = logits.squeeze()
     # Ensure probs is always at least 1D to avoid concatenation issues
     # squeeze() can make (1,) -> () (0D), which breaks concatenation
     if probs.ndim == 0:
         probs = probs.reshape(1)
-    preds = (probs > 0.5).astype(int)
+    preds = (probs > threshold).astype(int)
     return probs, preds
 
 
-def compute_metrics_with_confusion(probs: np.ndarray, labels: np.ndarray):
+def compute_metrics_with_confusion(probs: np.ndarray, labels: np.ndarray, threshold: float = DEFAULT_THRESHOLD):
     """Compute metrics including false positive and false negative rates."""
-    preds = (probs > 0.5).astype(int)
+    preds = (probs > threshold).astype(int)
 
     # Calculate confusion matrix components
     false_positives = np.sum((preds == 1) & (labels == 0))
@@ -173,8 +176,8 @@ def compute_metrics_with_confusion(probs: np.ndarray, labels: np.ndarray):
     }
 
 
-def compute_per_category_metrics(probs: np.ndarray, labels: np.ndarray, categories: List[str], category_name: str) -> \
-        Dict[str, Dict[str, float]]:
+def compute_per_category_metrics(probs: np.ndarray, labels: np.ndarray, categories: List[str], category_name: str,
+                                  threshold: float = DEFAULT_THRESHOLD) -> Dict[str, Dict[str, float]]:
     """Compute metrics for each category (language or dataset) separately."""
     log_progress(f"Computing per-{category_name} metrics...")
     category_metrics = {}
@@ -194,7 +197,7 @@ def compute_per_category_metrics(probs: np.ndarray, labels: np.ndarray, categori
         cat_labels = np.array(data["labels"])
 
         if len(cat_labels) > 0:  # Only compute if we have samples
-            category_metrics[cat] = compute_metrics_with_confusion(cat_probs, cat_labels)
+            category_metrics[cat] = compute_metrics_with_confusion(cat_probs, cat_labels, threshold)
             log_progress(f"  [{i + 1}/{len(unique_categories)}] {cat}: {len(cat_labels)} samples, "
                          f"accuracy: {category_metrics[cat]['accuracy']:.2f}%")
         else:
@@ -283,6 +286,7 @@ def format_markdown_report(results: Dict, gpu_model_name: str = "GPU") -> str:
 
         md_lines.append("\n## Accuracy Results")
         md_lines.append(f"\n**Total Samples:** {acc_data['total_samples']:,}")
+        md_lines.append(f"\n**Decision Threshold:** {acc_data.get('threshold', DEFAULT_THRESHOLD)}")
         formatted_languages = [format_language_name(lang) for lang in acc_data['unique_languages']]
         md_lines.append(f"\n**Unique Languages:** {', '.join(formatted_languages)}")
         if 'unique_datasets' in acc_data:
@@ -606,7 +610,8 @@ def build_session(onnx_path: str, providers: List[str]):
     return session
 
 
-def run_accuracy(onnx_path: str, dataset, limit: Optional[int], batch_size: int = 2):
+def run_accuracy(onnx_path: str, dataset, limit: Optional[int], batch_size: int = 2,
+                 threshold: float = DEFAULT_THRESHOLD):
     log_progress("=" * 50)
     log_progress("ACCURACY EVALUATION")
 
@@ -686,23 +691,25 @@ def run_accuracy(onnx_path: str, dataset, limit: Optional[int], batch_size: int 
 
     # Compute overall metrics
     log_progress("Computing overall metrics...")
-    overall_metrics = compute_metrics_with_confusion(probs_all, labels_all)
+    overall_metrics = compute_metrics_with_confusion(probs_all, labels_all, threshold)
     log_progress(f"  Overall accuracy: {overall_metrics['accuracy']:.2f}%")
 
     # Compute per-language metrics
-    per_language_metrics = compute_per_category_metrics(probs_all, labels_all, languages_all, "language")
+    per_language_metrics = compute_per_category_metrics(probs_all, labels_all, languages_all, "language", threshold)
 
     # Compute per-dataset metrics
-    per_dataset_metrics = compute_per_category_metrics(probs_all, labels_all, datasets_all, "dataset")
+    per_dataset_metrics = compute_per_category_metrics(probs_all, labels_all, datasets_all, "dataset", threshold)
 
     log_progress("Accuracy evaluation complete!")
     return {
+        "threshold": threshold,
         "overall": overall_metrics,
         "per_language": per_language_metrics,
         "per_dataset": per_dataset_metrics,
         "total_samples": len(labels_all),
         "unique_languages": sorted(list(set(languages_all))),
-        "unique_datasets": sorted(list(set(datasets_all)))
+        "unique_datasets": sorted(list(set(datasets_all))),
+        "predictions": {"probs": probs_all.tolist(), "labels": labels_all.tolist()},
     }
 
 def benchmark(onnx_path: str,
@@ -711,7 +718,8 @@ def benchmark(onnx_path: str,
               limit: Optional[int] = None,
               perf_runs: int = 100,
               markdown_output: Optional[str] = None,
-              batch_size: int = 32):
+              batch_size: int = 32,
+              threshold: float = DEFAULT_THRESHOLD):
     # Generate markdown output path if not provided
     if markdown_output is None:
         markdown_output = generate_markdown_output_path(onnx_path=onnx_path, run_description=run_description)
@@ -722,6 +730,7 @@ def benchmark(onnx_path: str,
     log_progress(f"Model: {onnx_path}")
     log_progress(f"Sample limit: {limit if limit else 'None'}")
     log_progress(f"Performance runs: {perf_runs}")
+    log_progress(f"Decision threshold: {threshold}")
     log_progress(f"Output file: {markdown_output}")
     log_progress("")
 
@@ -780,7 +789,8 @@ def benchmark(onnx_path: str,
 
     # ---------- Accuracy (dataset) ----------
     if dataset:
-        results["accuracy"] = run_accuracy(onnx_path=onnx_path, dataset=dataset, limit=limit, batch_size=batch_size)
+        results["accuracy"] = run_accuracy(onnx_path=onnx_path, dataset=dataset, limit=limit, batch_size=batch_size,
+                                           threshold=threshold)
     else:
         results["accuracy"] = {"note": "No dataset_path provided; skipped."}
 

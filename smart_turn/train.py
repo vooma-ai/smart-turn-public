@@ -9,7 +9,8 @@ import torch
 import wandb
 from onnxruntime.quantization import quantize_static, CalibrationDataReader, QuantType, quant_pre_process, \
     QuantFormat, CalibrationMethod
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
+from sklearn.metrics import accuracy_score, balanced_accuracy_score, precision_score, recall_score, f1_score, \
+    confusion_matrix
 from torch import nn
 from torch.nn.functional import softmax
 from torch.utils.data import Dataset
@@ -643,6 +644,8 @@ def compute_metrics(eval_pred):
         "precision": precision_score(labels, preds, zero_division="warn"),
         "recall": recall_score(labels, preds, zero_division="warn"),
         "f1": f1_score(labels, preds, zero_division="warn"),
+        "macro_f1": f1_score(labels, preds, average="macro", zero_division=0),
+        "balanced_accuracy": balanced_accuracy_score(labels, preds),
         "pred_positives": tp + fp,
         "pred_negatives": tn + fn,
         "true_positives": tp,
@@ -715,7 +718,7 @@ def do_training_run(run_name: str, output_dir: str = "./output"):
         save_steps=CONFIG["save_steps"],
         logging_steps=CONFIG["logging_steps"],
         load_best_model_at_end=CONFIG.get("load_best_model_at_end", False),
-        metric_for_best_model="f1",
+        metric_for_best_model=CONFIG.get("metric_for_best_model", "f1"),
         greater_is_better=True,
         learning_rate=CONFIG["learning_rate"],
         warmup_ratio=CONFIG["warmup_ratio"],
