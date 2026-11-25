@@ -14,7 +14,7 @@ from sklearn.metrics import accuracy_score, average_precision_score, balanced_ac
 from torch import nn
 from torch.nn.functional import softmax
 from torch.utils.data import Dataset
-from transformers import EarlyStoppingCallback, WhisperFeatureExtractor, WhisperPreTrainedModel, WhisperConfig
+from transformers import EarlyStoppingCallback, WhisperFeatureExtractor, set_seed, WhisperPreTrainedModel, WhisperConfig
 # noinspection PyProtectedMember
 from transformers.models.whisper.modeling_whisper import WhisperEncoder
 # noinspection PyProtectedMember
@@ -24,6 +24,7 @@ from transformers.trainer_utils import IntervalStrategy
 from transformers.training_args import TrainingArguments
 
 from .audio_utils import truncate_audio_to_last_n_seconds
+from .augment import augment_clip
 from .benchmark import benchmark
 from datasets import load_dataset, concatenate_datasets, load_from_disk
 from .logger import log, log_model_structure, log_dataset_statistics, log_dependencies, log_device_info, ProgressLoggerCallback
@@ -52,6 +53,11 @@ CONFIG = {
 
     "freeze_encoder_layers": 0,
     "load_best_model_at_end": False,
+
+    # None trains on clips as they are; a dict (possibly empty) turns on
+    # smart_turn.augment with those overrides of DEFAULT_AUGMENT.
+    "augment": None,
+    "seed": 42,
 }
 
 
@@ -361,9 +367,10 @@ def split_training_and_eval(training_paths, eval_paths, load):
 
 
 class OnDemandSmartTurnDataset(Dataset):
-    def __init__(self, hf_dataset, feature_extractor):
+    def __init__(self, hf_dataset, feature_extractor, augment=None):
         self.dataset = hf_dataset
         self.feature_extractor = feature_extractor
+        self.augment = augment
 
     def __len__(self):
         return len(self.dataset)
@@ -372,6 +379,11 @@ class OnDemandSmartTurnDataset(Dataset):
         sample = self.dataset[idx]
 
         audio_array = sample["audio"]["array"]
+
+        if self.augment is not None:
+            # NOTE(neel): Drawn from torch so each dataloader worker and epoch differs.
+            rng = np.random.default_rng(int(torch.randint(0, 2**31, (1,)).item()))
+            audio_array = augment_clip(audio_array, rng, self.augment)
 
         audio_array = truncate_audio_to_last_n_seconds(audio_array, n_seconds=8)
 
@@ -444,7 +456,9 @@ def prepare_datasets_ondemand(feature_extractor, config):
         test_splits[dataset_name] = test_dataset
 
     log.info("Wrapping datasets with OnDemandWhisperDataset...")
-    wrapped_training = OnDemandSmartTurnDataset(merged_training_dataset, feature_extractor)
+    wrapped_training = OnDemandSmartTurnDataset(
+        merged_training_dataset, feature_extractor, augment=config.get("augment")
+    )
     wrapped_eval = OnDemandSmartTurnDataset(merged_eval_dataset, feature_extractor)
     wrapped_test_splits = {
         name: OnDemandSmartTurnDataset(dataset, feature_extractor)
@@ -720,6 +734,7 @@ def do_training_run(run_name: str, output_dir: str = "./output"):
 
     wandb_run.define_metric(name="exttest/*", step_metric="train/global_step")
 
+    set_seed(CONFIG.get("seed", 42))
     model = SmartTurnV3Model.from_pretrained(CONFIG["base_model_name"], num_labels=1, ignore_mismatched_sizes=True)
     feature_extractor = WhisperFeatureExtractor(chunk_length=8) # 8 seconds
 
@@ -760,6 +775,7 @@ def do_training_run(run_name: str, output_dir: str = "./output"):
         dataloader_pin_memory=True,
         tf32=False,
         disable_tqdm=True,
+        seed=CONFIG.get("seed", 42),
     )
 
     os.makedirs(training_args.output_dir, exist_ok=True)
