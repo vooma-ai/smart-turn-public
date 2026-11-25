@@ -9,8 +9,8 @@ import torch
 import wandb
 from onnxruntime.quantization import quantize_static, CalibrationDataReader, QuantType, quant_pre_process, \
     QuantFormat, CalibrationMethod
-from sklearn.metrics import accuracy_score, balanced_accuracy_score, precision_score, recall_score, f1_score, \
-    confusion_matrix
+from sklearn.metrics import accuracy_score, average_precision_score, balanced_accuracy_score, precision_score, \
+    recall_score, f1_score, confusion_matrix
 from torch import nn
 from torch.nn.functional import softmax
 from torch.utils.data import Dataset
@@ -660,6 +660,8 @@ def compute_metrics(eval_pred):
         "recall": recall_score(labels, preds, zero_division="warn"),
         "f1": f1_score(labels, preds, zero_division="warn"),
         "macro_f1": f1_score(labels, preds, average="macro", zero_division=0),
+        # Threshold-free: area under the precision-recall curve for turn ends.
+        "pr_auc": average_precision_score(labels, probs),
         "balanced_accuracy": balanced_accuracy_score(labels, preds),
         "pred_positives": tp + fp,
         "pred_negatives": tn + fn,
@@ -727,7 +729,9 @@ def do_training_run(run_name: str, output_dir: str = "./output"):
         per_device_train_batch_size=CONFIG["train_batch_size"],
         per_device_eval_batch_size=CONFIG["eval_batch_size"],
         num_train_epochs=CONFIG["num_epochs"],
-        eval_strategy=IntervalStrategy.STEPS,
+        # NOTE(neel): Saving must follow the eval schedule for load_best_model_at_end.
+        eval_strategy=IntervalStrategy(CONFIG.get("eval_strategy", "steps")),
+        save_strategy=IntervalStrategy(CONFIG.get("eval_strategy", "steps")),
         gradient_accumulation_steps=1,
         eval_steps=CONFIG["eval_steps"],
         save_steps=CONFIG["save_steps"],
