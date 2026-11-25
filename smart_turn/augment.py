@@ -1,7 +1,9 @@
 """Random, label-preserving changes to a training clip.
 
 Every change keeps the clip's length and where its speech ends, because the
-trailing pause is one of the cues the model learns a turn end from. The clip
+trailing pause is one of the cues the model learns a turn end from. Noise is
+stationary across the whole clip, as on a real line, so it fills pauses at a
+fixed level below the speech without moving where the speech stops. The clip
 is augmented before it is front-padded to 8 s, so the padding stays silent as
 it is in production.
 """

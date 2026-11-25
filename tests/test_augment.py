@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from smart_turn.augment import SAMPLE_RATE, augment_clip, band_limit, shift_pitch
+from smart_turn.augment import SAMPLE_RATE, add_noise, augment_clip, band_limit, shift_pitch
 
 SPEECH_END = int(2.7 * SAMPLE_RATE)
 
@@ -30,6 +30,16 @@ def test_keeps_length_and_speech_end(change):
     changed = change(audio)
     assert len(changed) == len(audio)
     assert last_loud_second(changed) == pytest.approx(last_loud_second(audio), abs=0.021)
+
+
+def test_noise_fills_the_pause_well_below_the_speech():
+    audio = speech_then_pause()
+    noisy = add_noise(audio, snr_db=10, exponent=1, rng=np.random.default_rng(3))
+    # NOTE(neel): The pause sits at the noise floor, 10 dB under the speech,
+    # so speech still visibly ends where it did.
+    assert last_loud_second(noisy, threshold_db=-6) == pytest.approx(
+        last_loud_second(audio), abs=0.021
+    )
 
 
 def test_augment_clip_keeps_length_and_dtype():
