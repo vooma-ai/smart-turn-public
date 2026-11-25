@@ -729,7 +729,9 @@ def do_training_run(run_name: str, output_dir: str = "./output"):
         per_device_train_batch_size=CONFIG["train_batch_size"],
         per_device_eval_batch_size=CONFIG["eval_batch_size"],
         num_train_epochs=CONFIG["num_epochs"],
-        eval_strategy=IntervalStrategy.STEPS,
+        # NOTE(neel): Saving must follow the eval schedule for load_best_model_at_end.
+        eval_strategy=IntervalStrategy(CONFIG.get("eval_strategy", "steps")),
+        save_strategy=IntervalStrategy(CONFIG.get("eval_strategy", "steps")),
         gradient_accumulation_steps=1,
         eval_steps=CONFIG["eval_steps"],
         save_steps=CONFIG["save_steps"],
