@@ -429,6 +429,9 @@ def prepare_datasets_ondemand(feature_extractor, config):
 
     for dataset_path in datasets_test:
         dataset_name = dataset_path.split("/")[-1]
+        if dataset_name in test_splits:
+            # Two test sets can share a folder name, e.g. .../a/test and .../b/test.
+            dataset_name = "/".join(dataset_path.rstrip("/").split("/")[-2:])
         test_dataset = load_dataset_at(dataset_path)
         test_splits[dataset_name] = test_dataset
 
