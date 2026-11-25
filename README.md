@@ -168,6 +168,9 @@ from smart_turn.train import CONFIG, do_training_run
 
 CONFIG["datasets_training"] = ["/path/to/local/train_dataset"]
 CONFIG["datasets_test"] = ["/path/to/local/test_dataset"]
+# Optional: a held-out eval set for early stopping. Without it, each training
+# dataset holds out a random 10% of its rows.
+CONFIG["datasets_eval"] = ["/path/to/local/eval_dataset"]
 
 model_path = do_training_run(run_name="my-smart-turn-run", output_dir="./output")
 ```

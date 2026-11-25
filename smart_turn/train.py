@@ -33,6 +33,8 @@ CONFIG = {
 
     "datasets_training": ["pipecat-ai/smart-turn-data-v3.2-train"],
     "datasets_test": ["pipecat-ai/smart-turn-data-v3.2-test"],
+    # Empty means each training dataset holds out a random 10% of its rows.
+    "datasets_eval": [],
 
     "learning_rate": 5e-5,
     "num_epochs": 4,
@@ -325,6 +327,28 @@ def load_dataset_at(path: str):
         return load_dataset(path)["train"]
 
 
+def split_training_and_eval(training_paths, eval_paths, load):
+    """Training and eval splits. Supplied eval datasets are used whole, and
+    training datasets are then used whole too; otherwise each training
+    dataset holds out a random 10% of its rows for eval."""
+    training_splits = []
+    eval_splits = []
+    for dataset_path in training_paths:
+        log.info(f"Loading dataset '{dataset_path.split('/')[-1]}'...")
+        full_dataset = load(dataset_path)
+        if eval_paths:
+            training_splits.append(full_dataset)
+            continue
+        log.info("  |-> Splitting dataset into train/eval splits...")
+        dataset_dict = full_dataset.train_test_split(test_size=0.1, seed=42)
+        training_splits.append(dataset_dict["train"])
+        eval_splits.append(dataset_dict["test"])
+    for dataset_path in eval_paths:
+        log.info(f"Loading eval dataset '{dataset_path.split('/')[-1]}'...")
+        eval_splits.append(load(dataset_path))
+    return training_splits, eval_splits
+
+
 class OnDemandSmartTurnDataset(Dataset):
     def __init__(self, hf_dataset, feature_extractor):
         self.dataset = hf_dataset
@@ -391,19 +415,10 @@ def prepare_datasets_ondemand(feature_extractor, config):
     datasets_training = config["datasets_training"]
     datasets_test = config["datasets_test"]
 
-    training_splits = []
-    eval_splits = []
     test_splits = {}
-
-    for dataset_path in datasets_training:
-        dataset_name = dataset_path.split("/")[-1]
-        log.info(f"Loading dataset '{dataset_name}'...")
-        full_dataset = load_dataset_at(dataset_path)
-
-        log.info("  |-> Splitting dataset into train/eval splits...")
-        dataset_dict = full_dataset.train_test_split(test_size=0.1, seed=42)
-        training_splits.append(dataset_dict["train"])
-        eval_splits.append(dataset_dict["test"])
+    training_splits, eval_splits = split_training_and_eval(
+        datasets_training, config.get("datasets_eval") or [], load_dataset_at
+    )
 
     log.info("Merging datasets...")
 
