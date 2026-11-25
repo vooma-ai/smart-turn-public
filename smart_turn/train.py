@@ -14,7 +14,7 @@ from sklearn.metrics import accuracy_score, average_precision_score, balanced_ac
 from torch import nn
 from torch.nn.functional import softmax
 from torch.utils.data import Dataset
-from transformers import WhisperFeatureExtractor, WhisperPreTrainedModel, WhisperConfig
+from transformers import EarlyStoppingCallback, WhisperFeatureExtractor, WhisperPreTrainedModel, WhisperConfig
 # noinspection PyProtectedMember
 from transformers.models.whisper.modeling_whisper import WhisperEncoder
 # noinspection PyProtectedMember
@@ -770,6 +770,12 @@ def do_training_run(run_name: str, output_dir: str = "./output"):
             ProgressLoggerCallback(log_interval=CONFIG["logging_steps"])
         ]
     )
+
+    # Counts evaluations without improvement in metric_for_best_model, so with
+    # eval_strategy "epoch" this is a patience in epochs.
+    early_stopping_patience = CONFIG.get("early_stopping_patience")
+    if early_stopping_patience:
+        trainer.add_callback(EarlyStoppingCallback(early_stopping_patience=early_stopping_patience))
 
     if datasets["test"]:
         trainer.add_callback(ExternalEvaluationCallback(
