@@ -327,6 +327,17 @@ def load_dataset_at(path: str):
         return load_dataset(path)["train"]
 
 
+def unique_dataset_name(dataset_path, taken):
+    """The folder name, widened with parent folders while another test set
+    already uses it, e.g. .../a/test and .../b/test."""
+    parts = dataset_path.rstrip("/").split("/")
+    for depth in range(1, len(parts) + 1):
+        name = "/".join(parts[-depth:])
+        if name not in taken:
+            return name
+    return dataset_path
+
+
 def split_training_and_eval(training_paths, eval_paths, load):
     """Training and eval splits. Supplied eval datasets are used whole, and
     training datasets are then used whole too; otherwise each training
@@ -428,7 +439,7 @@ def prepare_datasets_ondemand(feature_extractor, config):
     log.info("Loading test datasets...")
 
     for dataset_path in datasets_test:
-        dataset_name = dataset_path.split("/")[-1]
+        dataset_name = unique_dataset_name(dataset_path, test_splits)
         test_dataset = load_dataset_at(dataset_path)
         test_splits[dataset_name] = test_dataset
 
